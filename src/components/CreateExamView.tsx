@@ -2,12 +2,8 @@ import React, { useState, useRef } from 'react';
 import type { Exam, Question } from '../types';
 import { extractTextFromFile } from '../utils/fileExtractors';
 import { parseQuizText } from '../utils/quizParser';
-import { solveQuestionsWithGemini, parseQuizWithGemini } from '../utils/aiService';
-import { getAISettings } from '../utils/storage';
 import {
   UploadCloud,
-  FileText,
-  Sparkles,
   ArrowRight,
   CheckCircle2,
   AlertCircle,
@@ -47,7 +43,6 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
     sourceFileName?: string;
   } | null>(null);
 
-  const [autoSolveWithAI, setAutoSolveWithAI] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -75,48 +70,14 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
         ? fileName.replace(/\.[^/.]+$/, '').replace(/[_-\s]+/g, ' ')
         : 'Bài trắc nghiệm mới';
 
-      // 1. Try standard parser
+      // Parse questions from document/text
       const parseRes = parseQuizText(text, defaultTitle);
-      let questions = parseRes.questions;
-
-      // 2. If regex parser found 0 questions, attempt Gemini AI parsing
-      if (questions.length === 0) {
-        setProcessingStep('Đang kích hoạt AI đọc hiểu và bóc tách câu hỏi từ tài liệu...');
-        const aiQuestions = await parseQuizWithGemini(text);
-        if (aiQuestions.length > 0) {
-          questions = aiQuestions;
-        }
-      }
+      const questions = parseRes.questions;
 
       if (questions.length === 0) {
         throw new Error(
-          'Không tìm thấy câu hỏi trắc nghiệm nào trong tài liệu. Vui lòng đảm bảo các câu hỏi có định dạng như "Câu 1:", "1.", và các lựa chọn "A.", "B.", "C.", "D." hoặc bấm nút "Tạo đề trống" bên dưới để tự nhập.'
+          'Không tìm thấy câu hỏi trắc nghiệm nào trong tài liệu. Vui lòng đảm bảo các câu hỏi có định dạng như "Câu 1:", "1.", và các lựa chọn "A.", "B.", "C.", "D." hoặc bấm nút "Tạo đề trống" bên dưới để tự soạn.'
         );
-      }
-
-      // 3. If user enabled AI, automatically solve missing answers and generate detailed explanations
-      if (autoSolveWithAI) {
-        const targetQuestions = questions.filter(
-          (q) => !q.correctOptionId || !q.explanation || q.explanation.trim().length === 0
-        );
-
-        if (targetQuestions.length > 0) {
-          setProcessingStep(`AI đang suy luận đáp án và soạn lời giải thích chi tiết cho ${targetQuestions.length} câu hỏi...`);
-          const aiSettings = getAISettings();
-          const solvedMap = await solveQuestionsWithGemini(targetQuestions, aiSettings);
-
-          questions = questions.map((q) => {
-            if (solvedMap[q.id]) {
-              return {
-                ...q,
-                correctOptionId: q.correctOptionId || solvedMap[q.id].correctOptionId,
-                explanation: q.explanation || solvedMap[q.id].explanation,
-                aiGeneratedAnswer: !q.correctOptionId,
-              };
-            }
-            return q;
-          });
-        }
       }
 
       const calculatedDuration = Math.max(5, Math.ceil(questions.length * 1.5));
@@ -183,7 +144,7 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
             { id: `${qId}_opt_C`, key: 'C', text: 'Lựa chọn C' },
             { id: `${qId}_opt_D`, key: 'D', text: 'Lựa chọn D' },
           ],
-          correctOptionId: `${qId}_opt_A`,
+          correctOptionId: undefined,
           explanation: '',
         },
       ],
@@ -195,37 +156,34 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
   const handleSaveAndGo = (targetMode: 'practice' | 'editor') => {
     if (!parsedExam) return;
 
-    const newExam: Exam = {
-      id: 'exam_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-      title: parsedExam.title.trim() || 'Bài trắc nghiệm mới',
-      description: parsedExam.description.trim(),
-      sourceFileName: parsedExam.sourceFileName,
+    const examId = 'exam_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const finalExam: Exam = {
+      id: examId,
+      title: parsedExam.title,
+      description: parsedExam.description,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       durationMinutes: parsedExam.durationMinutes,
+      tags: parsedExam.tags.split(',').map((t) => t.trim()).filter(Boolean),
       questions: parsedExam.questions,
-      tags: parsedExam.tags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean),
     };
 
-    onExamCreated(newExam, targetMode);
+    onExamCreated(finalExam, targetMode);
   };
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      {/* Header */}
+      {/* Title */}
       <div className="text-center mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Tạo bài trắc nghiệm
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+          Tạo bài trắc nghiệm mới
         </h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-lg mx-auto">
-          Tự động trích xuất từ PDF, Word hoặc dán trực tiếp. Hệ thống nhận diện câu hỏi, đáp án và hỗ trợ AI giải đề tự động.
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5">
+          Tải lên file PDF/Word hoặc dán văn bản để tự động tạo đề thi trong tích tắc
         </p>
 
-        {/* Tab Switcher */}
-        <div className="mt-6 inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-medium">
+        {/* Tab switch */}
+        <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl mt-6 text-xs font-semibold">
           <button
             onClick={() => {
               setActiveTab('upload');
@@ -285,35 +243,53 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
                   className="hidden"
                 />
 
-                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mx-auto mb-4">
-                  {selectedFile ? <FileText className="w-7 h-7" /> : <UploadCloud className="w-7 h-7" />}
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mx-auto mb-3">
+                  <UploadCloud className="w-6 h-6" />
                 </div>
 
                 {selectedFile ? (
                   <div>
-                    <p className="font-semibold text-slate-900 dark:text-white text-base">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
                       {selectedFile.name}
                     </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB • Nhấp để chọn file khác
+                    <p className="text-xs text-slate-400 mt-1">
+                      {(selectedFile.size / 1024).toFixed(1)} KB • Bấm để chọn tệp khác
                     </p>
                   </div>
                 ) : (
                   <div>
-                    <p className="font-medium text-slate-900 dark:text-white text-sm sm:text-base">
-                      Kéo thả file tài liệu vào đây hoặc <span className="underline font-semibold">chọn tệp từ máy tính</span>
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                      Kéo thả tệp vào đây, hoặc <span className="underline">chọn tệp từ máy tính</span>
                     </p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
-                      Hỗ trợ PDF (.pdf), Word (.docx), hoặc Text (.txt, .md)
+                    <p className="text-xs text-slate-400 mt-1.5">
+                      Hỗ trợ định dạng PDF (.pdf), Microsoft Word (.docx), hoặc Văn bản (.txt)
                     </p>
                   </div>
                 )}
               </div>
+
+              {/* Sample files hint */}
+              <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
+                <span>Tài liệu sẽ được xử lý cục bộ an toàn trên máy bạn</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('paste');
+                    setPastedText(
+                      `Câu 1: Thủ đô của Việt Nam là gì?\nA. Hà Nội\nB. TP. Hồ Chí Minh\nC. Đà Nẵng\nD. Cần Thơ\nĐáp án: A\n\nCâu 2: Một năm có bao nhiêu mùa chính ở miền Bắc?\nA. 2 mùa\nB. 3 mùa\nC. 4 mùa\nD. 5 mùa\nĐáp án: C`
+                    );
+                  }}
+                  className="hover:text-slate-700 dark:hover:text-slate-300 underline"
+                >
+                  Dán đề mẫu thử nghiệm
+                </button>
+              </div>
             </div>
           ) : (
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
-                Nội dung câu hỏi trắc nghiệm
+              {/* Direct Paste Area */}
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                Nội dung đề thi trắc nghiệm
               </label>
               <textarea
                 value={pastedText}
@@ -324,38 +300,6 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
               />
             </div>
           )}
-
-          {/* AI Toggle */}
-          <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-900 dark:text-white">
-                  Tự động nhờ AI giải đề & tạo lời giải thích chi tiết
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  AI sẽ suy luận đáp án chính xác và thêm lời giải thích học thuật cho từng câu hỏi
-                </p>
-                {!getAISettings().geminiApiKey?.trim() && (
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 font-medium">
-                    ⚠️ Nhớ nhập API Key tại menu <strong>Cài đặt AI</strong> trên thanh menu để kích hoạt tính năng này nhé!
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoSolveWithAI}
-                onChange={(e) => setAutoSolveWithAI(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-slate-900 dark:peer-checked:bg-slate-100 dark:peer-checked:after:bg-slate-900"></div>
-            </label>
-          </div>
 
           {/* Error display */}
           {errorMessage && (
@@ -370,28 +314,35 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
             <button
               onClick={handleCreateBlankExam}
               type="button"
-              className="w-full sm:w-auto px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
+              className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 font-medium py-2 flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Tạo đề trống và tự nhập câu hỏi</span>
+              <span>Tạo đề thi trống (tự soạn từ đầu)</span>
             </button>
 
-            <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
                 onClick={onCancel}
-                disabled={isProcessing}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-medium transition-colors"
+                type="button"
+                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
               >
-                Hủy
+                Hủy bỏ
               </button>
 
               <button
                 onClick={handleStartParsing}
-                disabled={isProcessing || (activeTab === 'upload' ? !selectedFile : !pastedText.trim())}
-                className={`px-5 py-2.5 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2 shadow-xs ${
-                  isProcessing || (activeTab === 'upload' ? !selectedFile : !pastedText.trim())
+                disabled={
+                  isProcessing ||
+                  (activeTab === 'upload' && !selectedFile) ||
+                  (activeTab === 'paste' && !pastedText.trim())
+                }
+                type="button"
+                className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                  isProcessing ||
+                  (activeTab === 'upload' && !selectedFile) ||
+                  (activeTab === 'paste' && !pastedText.trim())
                     ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                    : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100'
+                    : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 shadow-sm'
                 }`}
               >
                 {isProcessing ? (
@@ -424,8 +375,8 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
             Đã nhận diện được{' '}
             <strong className="text-slate-900 dark:text-white">{parsedExam.questions.length}</strong> câu hỏi trắc nghiệm.
             {parsedExam.missingCount > 0 && (
-              <span className="text-amber-600 dark:text-amber-400 ml-1">
-                (Còn {parsedExam.missingCount} câu chưa có đáp án, bạn có thể chỉnh sửa hoặc nhờ AI giải trong Editor).
+              <span className="text-amber-600 dark:text-amber-400 block sm:inline sm:ml-1 mt-1 sm:mt-0">
+                (Còn {parsedExam.missingCount} câu chưa có đáp án, bạn có thể bổ sung trong Trình biên tập đề thi).
               </span>
             )}
           </p>
@@ -447,59 +398,74 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Thời gian làm bài (phút)</span>
+                  <span>Thời gian làm bài thi (phút)</span>
                 </label>
                 <input
                   type="number"
-                  min={0}
+                  min={1}
+                  max={300}
                   value={parsedExam.durationMinutes}
                   onChange={(e) =>
-                    setParsedExam({ ...parsedExam, durationMinutes: parseInt(e.target.value, 10) || 0 })
+                    setParsedExam({
+                      ...parsedExam,
+                      durationMinutes: parseInt(e.target.value, 10) || 15,
+                    })
                   }
                   className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500"
                 />
-                <span className="text-[11px] text-slate-400 mt-1 block">Đặt 0 nếu không giới hạn thời gian.</span>
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                   <Tag className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Thẻ / Phân loại (cách nhau bởi dấu phẩy)</span>
+                  <span>Nhãn phân loại (cách nhau bởi dấu phẩy)</span>
                 </label>
                 <input
                   type="text"
                   value={parsedExam.tags}
                   onChange={(e) => setParsedExam({ ...parsedExam, tags: e.target.value })}
-                  placeholder="Toán, Tiếng Anh, THPT..."
+                  placeholder="Y học, Khảo thí, Ôn tập..."
                   className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500"
                 />
               </div>
             </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Mô tả ngắn
+              </label>
+              <input
+                type="text"
+                value={parsedExam.description}
+                onChange={(e) => setParsedExam({ ...parsedExam, description: e.target.value })}
+                className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500"
+              />
+            </div>
           </div>
 
-          {/* Action Choice */}
-          <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+          {/* Action buttons */}
+          <div className="mt-8 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
             <button
               onClick={() => setParsedExam(null)}
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-medium transition-colors"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
             >
-              Quay lại chọn file
+              Phân tích lại
             </button>
 
-            <div className="w-full sm:w-auto flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
                 onClick={() => handleSaveAndGo('editor')}
-                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-medium transition-colors"
+                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 transition-colors flex items-center justify-center gap-1.5"
               >
-                Vào Trình chỉnh sửa
+                <span>Chỉnh sửa đề thi</span>
               </button>
 
               <button
                 onClick={() => handleSaveAndGo('practice')}
-                className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 text-xs font-semibold shadow-xs transition-all flex items-center justify-center gap-1.5"
+                className="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 text-xs font-semibold transition-all shadow-sm flex items-center justify-center gap-1.5"
               >
                 <span>Luyện tập ngay</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>

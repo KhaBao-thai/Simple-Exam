@@ -1,20 +1,16 @@
 import React, { useState } from 'react';
 import type { Exam, Question, Option } from '../types';
 import { MathText } from './MathText';
-import { solveQuestionsWithGemini } from '../utils/aiService';
-import { getAISettings } from '../utils/storage';
 import {
   Save,
   ArrowLeft,
   Plus,
   Trash2,
-  Sparkles,
   Shuffle,
   Clock,
   CheckCircle2,
   HelpCircle,
   Play,
-  Loader2,
   Share2
 } from 'lucide-react';
 
@@ -45,12 +41,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
     });
     return copy;
   });
-  const [isSolvingAll, setIsSolvingAll] = useState(false);
-  const [solvingQuestionId, setSolvingQuestionId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'info'; text: string } | null>(null);
 
   const missingAnswersCount = currentExam.questions.filter((q) => !q.correctOptionId).length;
-  const missingExplanationCount = currentExam.questions.filter((q) => !q.explanation || q.explanation.trim().length === 0).length;
 
   const showToast = (text: string, type: 'success' | 'info' = 'success') => {
     setNotification({ type, text });
@@ -84,9 +77,14 @@ export const EditorView: React.FC<EditorViewProps> = ({
     setCurrentExam((prev) => ({ ...prev, questions }));
   };
 
+  // Toggle selection: click to select as correct answer; click again to deselect
   const handleSelectCorrectOption = (qIndex: number, optionId: string) => {
     const questions = [...currentExam.questions];
-    questions[qIndex].correctOptionId = optionId;
+    if (questions[qIndex].correctOptionId === optionId) {
+      questions[qIndex].correctOptionId = undefined;
+    } else {
+      questions[qIndex].correctOptionId = optionId;
+    }
     setCurrentExam((prev) => ({ ...prev, questions }));
   };
 
@@ -136,141 +134,43 @@ export const EditorView: React.FC<EditorViewProps> = ({
         { id: `${newQId}_opt_C`, key: 'C', text: '' },
         { id: `${newQId}_opt_D`, key: 'D', text: '' },
       ],
-      correctOptionId: `${newQId}_opt_A`,
+      correctOptionId: undefined,
       explanation: '',
     };
     setCurrentExam((prev) => ({
       ...prev,
       questions: [...prev.questions, newQuestion],
     }));
+    setTimeout(() => {
+      window.scrollTo({
+        top: document.body.scrollHeight,
+        behavior: 'smooth',
+      });
+    }, 100);
   };
 
   const handleRemoveQuestion = (qIndex: number) => {
-    if (confirm('Bạn có chắc muốn xóa câu hỏi này?')) {
-      const questions = currentExam.questions.filter((_, idx) => idx !== qIndex);
-      questions.forEach((q, idx) => {
-        q.number = idx + 1;
-      });
-      setCurrentExam((prev) => ({ ...prev, questions }));
+    if (currentExam.questions.length <= 1) {
+      alert('Đề thi phải có ít nhất 1 câu hỏi.');
+      return;
     }
+    const questions = [...currentExam.questions];
+    questions.splice(qIndex, 1);
+    // Renumber
+    questions.forEach((q, idx) => {
+      q.number = idx + 1;
+    });
+    setCurrentExam((prev) => ({ ...prev, questions }));
+    showToast('Đã xóa câu hỏi.');
   };
 
   const handleShuffleQuestions = () => {
-    const shuffled = [...currentExam.questions].sort(() => Math.random() - 0.5);
-    shuffled.forEach((q, idx) => {
+    const questions = [...currentExam.questions].sort(() => Math.random() - 0.5);
+    questions.forEach((q, idx) => {
       q.number = idx + 1;
     });
-    setCurrentExam((prev) => ({ ...prev, questions: shuffled }));
+    setCurrentExam((prev) => ({ ...prev, questions }));
     showToast('Đã xáo trộn thứ tự các câu hỏi!');
-  };
-
-  // AI solve single question
-  const handleSolveSingleWithAI = async (q: Question) => {
-    setSolvingQuestionId(q.id);
-    try {
-      const aiSettings = getAISettings();
-      const res = await solveQuestionsWithGemini([q], aiSettings);
-      if (res[q.id]) {
-        const questions = currentExam.questions.map((quest) => {
-          if (quest.id === q.id) {
-            return {
-              ...quest,
-              correctOptionId: res[q.id].correctOptionId,
-              explanation: quest.explanation || res[q.id].explanation,
-              aiGeneratedAnswer: true,
-            };
-          }
-          return quest;
-        });
-        setCurrentExam((prev) => ({ ...prev, questions }));
-        showToast(`AI đã chọn đáp án cho câu ${q.number}!`);
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Không thể nhờ AI giải lúc này. Vui lòng kiểm tra lại API Key trong phần Cài đặt.');
-    } finally {
-      setSolvingQuestionId(null);
-    }
-  };
-
-  // AI solve all missing questions
-  const handleSolveAllMissingWithAI = async () => {
-    const missing = currentExam.questions.filter((q) => !q.correctOptionId);
-    if (missing.length === 0) {
-      showToast('Tất cả các câu hỏi đều đã có đáp án!', 'info');
-      return;
-    }
-
-    setIsSolvingAll(true);
-    try {
-      const aiSettings = getAISettings();
-      const res = await solveQuestionsWithGemini(missing, aiSettings);
-
-      if (Object.keys(res).length === 0) {
-        alert('Không thể kết nối với AI hoặc chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt AI" trên thanh menu để nhập API Key miễn phí của bạn.');
-        return;
-      }
-
-      const questions = currentExam.questions.map((quest) => {
-        if (!quest.correctOptionId && res[quest.id]) {
-          return {
-            ...quest,
-            correctOptionId: res[quest.id].correctOptionId,
-            explanation: quest.explanation || res[quest.id].explanation,
-            aiGeneratedAnswer: true,
-          };
-        }
-        return quest;
-      });
-
-      setCurrentExam((prev) => ({ ...prev, questions }));
-      showToast(`AI đã giải xong ${Object.keys(res).length} câu hỏi!`);
-    } catch (e) {
-      console.error(e);
-      alert('Đã xảy ra lỗi khi gọi AI. Vui lòng thử lại.');
-    } finally {
-      setIsSolvingAll(false);
-    }
-  };
-
-  // AI generate explanations for all questions that lack one
-  const handleGenerateAllExplanationsWithAI = async () => {
-    const targets = currentExam.questions.filter((q) => !q.explanation || q.explanation.trim().length === 0);
-    if (targets.length === 0) {
-      showToast('Tất cả câu hỏi đều đã có lời giải thích!', 'info');
-      return;
-    }
-
-    setIsSolvingAll(true);
-    try {
-      const aiSettings = getAISettings();
-      const res = await solveQuestionsWithGemini(targets, aiSettings);
-
-      if (Object.keys(res).length === 0) {
-        alert('Không thể kết nối với AI hoặc chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt AI" trên thanh menu để nhập API Key miễn phí của bạn.');
-        return;
-      }
-
-      const questions = currentExam.questions.map((quest) => {
-        if (res[quest.id]) {
-          return {
-            ...quest,
-            correctOptionId: quest.correctOptionId || res[quest.id].correctOptionId,
-            explanation: res[quest.id].explanation,
-            aiGeneratedAnswer: !quest.correctOptionId,
-          };
-        }
-        return quest;
-      });
-
-      setCurrentExam((prev) => ({ ...prev, questions }));
-      showToast(`AI đã tạo xong lời giải thích cho ${Object.keys(res).length} câu hỏi!`);
-    } catch (e) {
-      console.error(e);
-      alert('Đã xảy ra lỗi khi gọi AI. Vui lòng thử lại.');
-    } finally {
-      setIsSolvingAll(false);
-    }
   };
 
   const handleSave = () => {
@@ -282,7 +182,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
     <div className="max-w-4xl mx-auto px-4 py-8">
       {/* Toast Notification */}
       {notification && (
-        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl text-xs font-medium flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-2xl shadow-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4">
           <CheckCircle2 className="w-4 h-4 text-emerald-500" />
           <span>{notification.text}</span>
         </div>
@@ -300,35 +200,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
         <div className="flex items-center gap-2">
           {missingAnswersCount > 0 && (
-            <button
-              onClick={handleSolveAllMissingWithAI}
-              disabled={isSolvingAll}
-              className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-medium transition-colors flex items-center gap-1.5"
-              title="Nhờ AI tự động chọn đáp án và thêm giải thích cho các câu còn thiếu"
-            >
-              {isSolvingAll ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-              )}
-              <span>AI giải & giải thích ({missingAnswersCount} câu)</span>
-            </button>
-          )}
-
-          {missingExplanationCount > 0 && missingAnswersCount === 0 && (
-            <button
-              onClick={handleGenerateAllExplanationsWithAI}
-              disabled={isSolvingAll}
-              className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-medium transition-colors flex items-center gap-1.5"
-              title="Nhờ AI tự động tạo lời giải thích chi tiết cho các câu chưa có giải thích"
-            >
-              {isSolvingAll ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              )}
-              <span>AI soạn giải thích ({missingExplanationCount} câu)</span>
-            </button>
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 rounded-lg border border-amber-200/60 dark:border-amber-800/40">
+              Còn {missingAnswersCount} câu chưa chọn đáp án
+            </span>
           )}
 
           <button
@@ -362,26 +236,31 @@ export const EditorView: React.FC<EditorViewProps> = ({
               handleSave();
               onStartPractice(currentExam);
             }}
-            className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-medium transition-all shadow-xs flex items-center gap-1.5"
+            className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white text-xs font-semibold transition-all flex items-center gap-1.5"
           >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span>Luyện tập</span>
+            <Play className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Vào luyện tập</span>
           </button>
         </div>
       </div>
 
-      {/* Exam Meta Settings Section */}
+      {/* Metadata Configuration */}
       <div className="mt-6 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-xs">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">
+          Thông tin cơ bản
+        </h2>
+
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Tiêu đề bài trắc nghiệm
+              Tiêu đề bài thi
             </label>
             <input
               type="text"
               value={currentExam.title}
               onChange={(e) => handleUpdateTitle(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-base font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500"
+              placeholder="Ví dụ: Kiểm tra Giải tích 12..."
+              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500"
             />
           </div>
 
@@ -389,26 +268,27 @@ export const EditorView: React.FC<EditorViewProps> = ({
             <div>
               <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-slate-400" />
-                <span>Thời gian làm bài (phút)</span>
+                <span>Thời gian làm bài thi (phút)</span>
               </label>
               <input
                 type="number"
-                min={0}
+                min={1}
+                max={300}
                 value={currentExam.durationMinutes}
-                onChange={(e) => handleUpdateDuration(parseInt(e.target.value, 10) || 0)}
+                onChange={(e) => handleUpdateDuration(parseInt(e.target.value, 10) || 15)}
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500"
               />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Thẻ phân loại
+                Nhãn phân loại (ngăn cách bằng dấu phẩy)
               </label>
               <input
                 type="text"
                 value={currentExam.tags?.join(', ') || ''}
                 onChange={(e) => handleUpdateTags(e.target.value)}
-                placeholder="Toán học, Tiếng Anh, Lý..."
+                placeholder="Toán, Đại học, Giải tích..."
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500"
               />
             </div>
@@ -416,17 +296,23 @@ export const EditorView: React.FC<EditorViewProps> = ({
         </div>
       </div>
 
-      {/* Questions List */}
+      {/* Questions List Header */}
       <div className="mt-8 space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-            Danh sách câu hỏi ({currentExam.questions.length})
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              Danh sách câu hỏi
+            </h2>
+            <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full font-mono">
+              {currentExam.questions.length}
+            </span>
+          </div>
+
           <button
             onClick={handleAddQuestion}
-            className="px-3.5 py-1.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:border-slate-400 text-slate-700 dark:text-slate-200 text-xs font-medium transition-colors flex items-center gap-1.5"
+            className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 transition-colors flex items-center gap-1.5"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
             <span>Thêm câu hỏi mới</span>
           </button>
         </div>
@@ -446,29 +332,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
                   <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                     Câu hỏi {q.number || qIndex + 1}
                   </span>
-                  {q.aiGeneratedAnswer && (
-                    <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-slate-500" /> AI đã giải
-                    </span>
-                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {/* Single Question AI Solver */}
-                  <button
-                    onClick={() => handleSolveSingleWithAI(q)}
-                    disabled={solvingQuestionId === q.id}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors flex items-center gap-1"
-                    title="Nhờ AI phân tích câu này và chọn đáp án đúng"
-                  >
-                    {solvingQuestionId === q.id ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-3 h-3" />
-                    )}
-                    <span>AI giải câu này</span>
-                  </button>
-
                   <button
                     onClick={() => handleRemoveQuestion(qIndex)}
                     className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
@@ -487,31 +353,35 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 <textarea
                   value={q.text}
                   onChange={(e) => handleQuestionTextChange(qIndex, e.target.value)}
+                  placeholder="Nhập nội dung đề bài tại đây..."
                   rows={3}
-                  className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500 leading-relaxed font-sans"
+                  className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500 font-sans"
                 />
 
-                {/* Math text live preview if contains $ */}
+                {/* Math Live Preview if needed */}
                 {q.text.includes('$') && (
-                  <div className="mt-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-1">Xem trước công thức:</span>
+                  <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                    <span className="text-[10px] uppercase font-semibold text-slate-400 block mb-1">
+                      Xem trước công thức:
+                    </span>
                     <MathText text={q.text} />
                   </div>
                 )}
               </div>
 
-              {/* Options */}
-              <div className="mt-4 space-y-2.5">
+              {/* Options Section */}
+              <div className="mt-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                    Các phương án trả lời <span className="text-slate-400 font-normal">(Bấm nút tròn để chọn đáp án đúng)</span>
+                    Lựa chọn đáp án (bấm vào chữ A, B, C, D để chọn đáp án đúng — bấm lần nữa để bỏ chọn)
                   </span>
                   <button
+                    type="button"
                     onClick={() => handleAddOption(qIndex)}
-                    className="text-xs text-slate-700 dark:text-slate-300 hover:underline flex items-center gap-1 font-semibold"
+                    className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white font-medium flex items-center gap-1"
                   >
-                    <Plus className="w-3 h-3" />
-                    <span>Thêm phương án</span>
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Thêm lựa chọn</span>
                   </button>
                 </div>
 
@@ -527,7 +397,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                           : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40'
                       }`}
                     >
-                      {/* Radio to pick as correct option */}
+                      {/* Radio button to pick/toggle as correct option */}
                       <button
                         type="button"
                         onClick={() => handleSelectCorrectOption(qIndex, opt.id)}
@@ -536,7 +406,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                             ? 'bg-emerald-600 text-white shadow-xs'
                             : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                         }`}
-                        title={isCorrect ? 'Đáp án đúng' : 'Nhấp để chọn làm đáp án đúng'}
+                        title={isCorrect ? 'Đáp án đúng (Bấm lần nữa để bỏ chọn)' : 'Nhấp để chọn làm đáp án đúng'}
                       >
                         {opt.key}
                       </button>
@@ -574,7 +444,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               </div>
 
               {/* Optional Explanation Field */}
-              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800">
                 {q.explanation && q.explanation.trim().length > 0 ? (
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
@@ -585,27 +455,27 @@ export const EditorView: React.FC<EditorViewProps> = ({
                       <button
                         type="button"
                         onClick={() => handleExplanationChange(qIndex, '')}
-                        className="text-[11px] text-slate-400 hover:text-rose-500 transition font-medium"
+                        className="text-[11px] text-slate-400 hover:text-rose-500 transition"
                       >
-                        Bỏ ghi chú này
+                        Xóa giải thích
                       </button>
                     </div>
                     <textarea
                       value={q.explanation}
                       onChange={(e) => handleExplanationChange(qIndex, e.target.value)}
-                      placeholder="Giải thích vì sao đáp án trên là đúng..."
                       rows={2}
-                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500"
+                      placeholder="Nhập lời giải thích tại đây..."
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => handleExplanationChange(qIndex, ' ')}
-                    className="text-[11px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1 transition py-1"
+                    className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 flex items-center gap-1 font-medium"
                   >
-                    <Plus className="w-3 h-3" />
-                    <span>Thêm lời giải thích / ghi chú (tùy chọn)</span>
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Thêm lời giải thích</span>
                   </button>
                 )}
               </div>
@@ -613,11 +483,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
           );
         })}
 
-        {/* Bottom add button */}
-        <div className="text-center pt-4">
+        {/* Add Question Button Bottom */}
+        <div className="pt-2 text-center">
           <button
             onClick={handleAddQuestion}
-            className="px-6 py-3 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-slate-400 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-all flex items-center gap-2 mx-auto"
+            className="w-full py-4 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold transition-all flex items-center justify-center gap-2"
           >
             <Plus className="w-4 h-4" />
             <span>Thêm câu hỏi mới</span>

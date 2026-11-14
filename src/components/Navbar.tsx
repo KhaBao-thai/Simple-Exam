@@ -1,7 +1,7 @@
 import React from 'react';
 import type { AppView } from '../types';
 import { Logo } from './Logo';
-import { BookOpen, Plus, Sparkles, Moon, Sun } from 'lucide-react';
+import { BookOpen, Plus, Moon, Sun } from 'lucide-react';
 
 interface NavbarProps {
   currentView: AppView;
@@ -66,19 +66,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Tạo đề mới</span>
-          </button>
-
-          <button
-            onClick={() => onNavigate('settings')}
-            className={`px-2.5 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${
-              currentView === 'settings'
-                ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/60'
-            }`}
-            title="Cài đặt AI"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span className="hidden sm:inline">Cài đặt AI</span>
           </button>
 
           <div className="h-4 w-px bg-slate-200 dark:bg-slate-800 mx-1" />

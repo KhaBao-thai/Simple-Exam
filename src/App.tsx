@@ -18,7 +18,6 @@ import { ExamView } from './components/ExamView';
 import { ExamResultView } from './components/ExamResultView';
 import { FlashcardView } from './components/FlashcardView';
 import { PrintView } from './components/PrintView';
-import { AISettingsModal } from './components/AISettingsModal';
 import { ShareModal } from './components/ShareModal';
 import { ReceiveShareModal } from './components/ReceiveShareModal';
 import { decodeShareBundle, fetchShareBundleById, type ShareBundle } from './utils/shareService';
@@ -28,7 +27,6 @@ export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>('library');
   const [activeExam, setActiveExam] = useState<Exam | null>(null);
   const [activeAttempt, setActiveAttempt] = useState<ExamAttempt | null>(null);
-  const [showAISettingsModal, setShowAISettingsModal] = useState(false);
   const [shareTargetExam, setShareTargetExam] = useState<Exam | null>(null);
   const [isSharingBank, setIsSharingBank] = useState(false);
   const [incomingShareBundle, setIncomingShareBundle] = useState<ShareBundle | null>(null);
@@ -238,12 +236,8 @@ export const App: React.FC = () => {
       <Navbar
         currentView={currentView}
         onNavigate={(view) => {
-          if (view === 'settings') {
-            setShowAISettingsModal(true);
-          } else {
-            setCurrentView(view);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }
+          setCurrentView(view);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         examTitle={activeExam?.title}
         isDarkMode={isDarkMode}
@@ -330,11 +324,6 @@ export const App: React.FC = () => {
           />
         )}
       </main>
-
-      {/* AI Settings Modal */}
-      {showAISettingsModal && (
-        <AISettingsModal onClose={() => setShowAISettingsModal(false)} />
-      )}
 
       {/* Share Modal (Share individual exam or full bank) */}
       {(shareTargetExam !== null || isSharingBank) && (
