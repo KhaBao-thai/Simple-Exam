@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import type { Exam } from '../types';
+import type { Exam, Question } from '../types';
 import { MathText } from './MathText';
 import confetti from 'canvas-confetti';
+import { solveQuestionsWithGemini } from '../utils/aiService';
+import { saveOrUpdateExam, getAISettings } from '../utils/storage';
 import {
   ArrowLeft,
   RotateCcw,
@@ -12,7 +14,9 @@ import {
   ChevronRight,
   ChevronLeft,
   Edit3,
-  Share2
+  Share2,
+  Sparkles,
+  Loader2
 } from 'lucide-react';
 
 interface PracticeViewProps {
@@ -31,9 +35,15 @@ export const PracticeView: React.FC<PracticeViewProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [showSummary, setShowSummary] = useState(false);
+  const [questions, setQuestions] = useState<Question[]>(exam.questions);
+  const [isExplainingAI, setIsExplainingAI] = useState(false);
 
-  const currentQ = exam.questions[currentIndex];
-  const totalQuestions = exam.questions.length;
+  useEffect(() => {
+    setQuestions(exam.questions);
+  }, [exam]);
+
+  const currentQ = questions[currentIndex];
+  const totalQuestions = questions.length;
 
   const currentSelectedOptId = currentQ ? selectedAnswers[currentQ.id] : undefined;
   const isAnswered = !!currentSelectedOptId;
@@ -41,10 +51,35 @@ export const PracticeView: React.FC<PracticeViewProps> = ({
 
   // Stats
   const answeredCount = Object.keys(selectedAnswers).length;
-  const correctCount = exam.questions.filter(
+  const correctCount = questions.filter(
     (q) => selectedAnswers[q.id] && selectedAnswers[q.id] === q.correctOptionId
   ).length;
   const incorrectCount = answeredCount - correctCount;
+
+  // Handle asking AI to explain the current question
+  const handleAskAIExplain = async (q: Question) => {
+    setIsExplainingAI(true);
+    try {
+      const aiSettings = getAISettings();
+      const res = await solveQuestionsWithGemini([q], aiSettings);
+      if (res[q.id]?.explanation) {
+        const updatedQuestions = questions.map((item) =>
+          item.id === q.id ? { ...item, explanation: res[q.id].explanation } : item
+        );
+        setQuestions(updatedQuestions);
+        saveOrUpdateExam({
+          ...exam,
+          questions: updatedQuestions,
+          updatedAt: Date.now(),
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Không thể gọi AI giải thích lúc này. Vui lòng thử lại sau.');
+    } finally {
+      setIsExplainingAI(false);
+    }
+  };
 
   // Handle answering
   const handleSelectOption = (optionId: string) => {
@@ -345,13 +380,36 @@ export const PracticeView: React.FC<PracticeViewProps> = ({
                 )}
               </div>
 
-              {currentQ.explanation && currentQ.explanation.trim() && !currentQ.explanation.includes('(AI Gợi ý)') && (
+              {currentQ.explanation && currentQ.explanation.trim() && !currentQ.explanation.includes('(AI Gợi ý)') ? (
                 <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800/60 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
-                  <div className="font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-1.5">
-                    <HelpCircle className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Giải thích chi tiết:</span>
+                  <div className="font-semibold text-slate-900 dark:text-white mb-1 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <HelpCircle className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Giải thích chi tiết:</span>
+                    </div>
+                    <button
+                      onClick={() => handleAskAIExplain(currentQ)}
+                      disabled={isExplainingAI}
+                      className="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-normal flex items-center gap-1 transition"
+                      title="Soạn lại lời giải thích bằng AI"
+                    >
+                      {isExplainingAI ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-amber-500" />}
+                      <span>Hỏi lại AI</span>
+                    </button>
                   </div>
                   <MathText text={currentQ.explanation} />
+                </div>
+              ) : (
+                <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400">Câu này chưa có lời giải thích</span>
+                  <button
+                    onClick={() => handleAskAIExplain(currentQ)}
+                    disabled={isExplainingAI}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition"
+                  >
+                    {isExplainingAI ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-500" />}
+                    <span>Nhờ AI giải thích chi tiết</span>
+                  </button>
                 </div>
               )}
             </div>

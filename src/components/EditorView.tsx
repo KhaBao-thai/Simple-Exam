@@ -50,6 +50,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const [notification, setNotification] = useState<{ type: 'success' | 'info'; text: string } | null>(null);
 
   const missingAnswersCount = currentExam.questions.filter((q) => !q.correctOptionId).length;
+  const missingExplanationCount = currentExam.questions.filter((q) => !q.explanation || q.explanation.trim().length === 0).length;
 
   const showToast = (text: string, type: 'success' | 'info' = 'success') => {
     setNotification({ type, text });
@@ -227,6 +228,41 @@ export const EditorView: React.FC<EditorViewProps> = ({
     }
   };
 
+  // AI generate explanations for all questions that lack one
+  const handleGenerateAllExplanationsWithAI = async () => {
+    const targets = currentExam.questions.filter((q) => !q.explanation || q.explanation.trim().length === 0);
+    if (targets.length === 0) {
+      showToast('Tất cả câu hỏi đều đã có lời giải thích!', 'info');
+      return;
+    }
+
+    setIsSolvingAll(true);
+    try {
+      const aiSettings = getAISettings();
+      const res = await solveQuestionsWithGemini(targets, aiSettings);
+
+      const questions = currentExam.questions.map((quest) => {
+        if (res[quest.id]) {
+          return {
+            ...quest,
+            correctOptionId: quest.correctOptionId || res[quest.id].correctOptionId,
+            explanation: res[quest.id].explanation,
+            aiGeneratedAnswer: !quest.correctOptionId,
+          };
+        }
+        return quest;
+      });
+
+      setCurrentExam((prev) => ({ ...prev, questions }));
+      showToast(`AI đã tạo xong lời giải thích cho ${Object.keys(res).length} câu hỏi!`);
+    } catch (e) {
+      console.error(e);
+      alert('Đã xảy ra lỗi khi gọi AI. Vui lòng thử lại.');
+    } finally {
+      setIsSolvingAll(false);
+    }
+  };
+
   const handleSave = () => {
     onSave(currentExam);
     showToast('Đã lưu bài trắc nghiệm thành công!');
@@ -258,14 +294,30 @@ export const EditorView: React.FC<EditorViewProps> = ({
               onClick={handleSolveAllMissingWithAI}
               disabled={isSolvingAll}
               className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-medium transition-colors flex items-center gap-1.5"
-              title="Nhờ AI tự động chọn đáp án cho các câu còn thiếu"
+              title="Nhờ AI tự động chọn đáp án và thêm giải thích cho các câu còn thiếu"
             >
               {isSolvingAll ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Sparkles className="w-3.5 h-3.5" />
+                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
               )}
-              <span>AI giải {missingAnswersCount} câu thiếu</span>
+              <span>AI giải & giải thích ({missingAnswersCount} câu)</span>
+            </button>
+          )}
+
+          {missingExplanationCount > 0 && missingAnswersCount === 0 && (
+            <button
+              onClick={handleGenerateAllExplanationsWithAI}
+              disabled={isSolvingAll}
+              className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-medium transition-colors flex items-center gap-1.5"
+              title="Nhờ AI tự động tạo lời giải thích chi tiết cho các câu chưa có giải thích"
+            >
+              {isSolvingAll ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              )}
+              <span>AI soạn giải thích ({missingExplanationCount} câu)</span>
             </button>
           )}
 

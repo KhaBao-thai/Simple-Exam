@@ -138,10 +138,9 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ onClose }) => 
               onChange={(e) => setSettings({ ...settings, model: e.target.value })}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:border-slate-500"
             >
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash (Khuyên dùng - Nhanh, chuẩn xác & Miễn phí)</option>
-              <option value="gemini-1.5-flash">Gemini 1.5 Flash (Cực kỳ ổn định & Miễn phí)</option>
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash (Tốc độ thế hệ mới)</option>
-              <option value="gemini-1.5-pro">Gemini 1.5 Pro (Suy luận chuyên sâu & Phức tạp)</option>
+              <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (Khuyên dùng - Nhanh, chuẩn xác & Miễn phí)</option>
+              <option value="gemini-3.5-flash">Gemini 3.5 Flash (Suy luận sâu & Lời giải chi tiết)</option>
+              <option value="gemini-3.8-flash">Gemini 3.8 Flash (Mô hình cao cấp thế hệ mới)</option>
             </select>
           </div>
 

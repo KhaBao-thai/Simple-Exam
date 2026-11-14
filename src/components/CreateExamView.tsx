@@ -47,7 +47,7 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
     sourceFileName?: string;
   } | null>(null);
 
-  const [autoSolveWithAI, setAutoSolveWithAI] = useState(false);
+  const [autoSolveWithAI, setAutoSolveWithAI] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -94,28 +94,29 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
         );
       }
 
-      const missingCount = questions.filter((q) => !q.correctOptionId).length;
-
-      // 3. If user enabled AI and there are missing answers, solve them safely
-      if (autoSolveWithAI && missingCount > 0) {
-        setProcessingStep(`AI đang phân tích và chọn đáp án cho ${missingCount} câu chưa có đáp án...`);
-        const aiSettings = getAISettings();
-        const solvedMap = await solveQuestionsWithGemini(
-          questions.filter((q) => !q.correctOptionId),
-          aiSettings
+      // 3. If user enabled AI, automatically solve missing answers and generate detailed explanations
+      if (autoSolveWithAI) {
+        const targetQuestions = questions.filter(
+          (q) => !q.correctOptionId || !q.explanation || q.explanation.trim().length === 0
         );
 
-        questions = questions.map((q) => {
-          if (!q.correctOptionId && solvedMap[q.id]) {
-            return {
-              ...q,
-              correctOptionId: solvedMap[q.id].correctOptionId,
-              explanation: q.explanation || solvedMap[q.id].explanation,
-              aiGeneratedAnswer: true,
-            };
-          }
-          return q;
-        });
+        if (targetQuestions.length > 0) {
+          setProcessingStep(`AI đang suy luận đáp án và soạn lời giải thích chi tiết cho ${targetQuestions.length} câu hỏi...`);
+          const aiSettings = getAISettings();
+          const solvedMap = await solveQuestionsWithGemini(targetQuestions, aiSettings);
+
+          questions = questions.map((q) => {
+            if (solvedMap[q.id]) {
+              return {
+                ...q,
+                correctOptionId: q.correctOptionId || solvedMap[q.id].correctOptionId,
+                explanation: q.explanation || solvedMap[q.id].explanation,
+                aiGeneratedAnswer: !q.correctOptionId,
+              };
+            }
+            return q;
+          });
+        }
       }
 
       const calculatedDuration = Math.max(5, Math.ceil(questions.length * 1.5));
@@ -332,10 +333,10 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
               </div>
               <div>
                 <p className="text-xs font-semibold text-slate-900 dark:text-white">
-                  Tự động nhờ AI giải nếu file chưa có đáp án
+                  Tự động nhờ AI giải đề & tạo lời giải thích chi tiết
                 </p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  AI sẽ suy luận đáp án chính xác và thêm giải thích chi tiết
+                  AI sẽ suy luận đáp án chính xác và thêm lời giải thích học thuật cho từng câu hỏi
                 </p>
               </div>
             </div>

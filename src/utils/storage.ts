@@ -5,7 +5,7 @@ const STORAGE_KEY_EXAMS = 'simple_exam_library_v1';
 const STORAGE_KEY_AI_SETTINGS = 'simple_exam_ai_settings_v1';
 
 export const DEFAULT_GEMINI_KEY = (import.meta.env.VITE_GEMINI_API_KEY as string) || '';
-export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 export function getStoredExams(): Exam[] {
   try {
@@ -123,8 +123,8 @@ export function getAISettings(): AISettings {
       const parsed = JSON.parse(raw);
       // Auto-migrate legacy/deprecated models like gemini-2.5-flash or gemini-1.5-flash
       let model = parsed.model || DEFAULT_GEMINI_MODEL;
-      // Reset invalid / hallucinated legacy models to gemini-2.5-flash
-      if (model.includes('3.5') || model.includes('3.8') || !model.startsWith('gemini-')) {
+      // Reset outdated legacy models (like 2.5 or 1.5) to active gemini-3.5-flash-lite
+      if (model.includes('2.5') || model.includes('1.5') || !model.startsWith('gemini-')) {
         model = DEFAULT_GEMINI_MODEL;
       }
       return {

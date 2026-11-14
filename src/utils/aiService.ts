@@ -7,7 +7,7 @@ export interface AISolveResult {
   explanation: string;
 }
 
-const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash'];
 
 /**
  * Executes a Gemini request with automatic fallback across viable models
@@ -83,19 +83,21 @@ export async function solveQuestionsWithGemini(
   // Build structured prompt
   const questionsPrompt = questions.map((q, idx) => {
     const opts = q.options.map((o) => `${o.key}. ${o.text}`).join('\n');
-    return `[Câu ${q.number || idx + 1}] (ID: ${q.id})\nĐề: ${q.text}\n${opts}`;
+    const knownKey = q.correctOptionId ? q.options.find((o) => o.id === q.correctOptionId)?.key : undefined;
+    const knownHint = knownKey ? ` (Đáp án chọn sẵn: ${knownKey})` : '';
+    return `[Câu ${q.number || idx + 1}] (ID: ${q.id})${knownHint}\nĐề: ${q.text}\n${opts}`;
   }).join('\n\n---\n\n');
 
-  const systemInstruction = `Bạn là một chuyên gia khảo thí và học thuật uy tín. Nhiệm vụ của bạn là giải chính xác các câu hỏi trắc nghiệm dưới đây (bao gồm cả kiến thức Y khoa, Khoa học tự nhiên, Xã hội, Ngôn ngữ).
+  const systemInstruction = `Bạn là một chuyên gia khảo thí và học thuật uy tín. Nhiệm vụ của bạn là giải chính xác các câu hỏi trắc nghiệm dưới đây (bao gồm Y khoa, Khoa học tự nhiên, Kỹ thuật, Xã hội, Ngôn ngữ) và viết lời giải thích chi tiết.
 Quy tắc:
-1. Suy luận cẩn trọng, đối chiếu tiêu chuẩn khoa học chính thống để chọn đáp án đúng tuyệt đối (A, B, C, D...).
-2. Viết lời giải thích chuyên môn ngắn gọn, súc tích, chỉ ra lý do tại sao phương án này đúng và vì sao các phương án khác sai (1-3 câu). Tuyệt đối không viết thông báo chung chung hay phỏng đoán.
+1. Suy luận cẩn trọng theo tiêu chuẩn khoa học để chọn đáp án đúng nhất (A, B, C, D...). Nếu đề có ghi "(Đáp án chọn sẵn: X)", hãy xác minh và giải thích vì sao X đúng.
+2. Viết lời giải thích chuyên môn ngắn gọn, súc tích, dễ hiểu (1-3 câu), giải thích rõ cơ chế/lý do phương án này đúng và phân tích vì sao các phương án khác chưa chính xác.
 3. Trả về đúng định dạng JSON array:
 [
   {
     "id": "chuỗi id câu hỏi nguyên gốc",
     "correctKey": "A",
-    "explanation": "Giải thích chi tiết chuyên môn ngắn gọn"
+    "explanation": "Lời giải thích chi tiết chuyên môn"
   }
 ]`;
 
