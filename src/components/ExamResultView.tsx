@@ -251,7 +251,7 @@ export const ExamResultView: React.FC<ExamResultViewProps> = ({
                 </div>
 
                 {/* Explanation */}
-                {q.explanation && (
+                {q.explanation && q.explanation.trim() && !q.explanation.includes('(AI Gợi ý)') && !q.explanation.includes('Đề xuất lựa chọn') && (
                   <div className="mt-4 p-4 rounded-2xl bg-gray-50 dark:bg-gray-900/40 border border-gray-100 dark:border-gray-800 text-xs text-gray-700 dark:text-gray-300 leading-relaxed">
                     <span className="font-semibold text-gray-900 dark:text-white flex items-center gap-1.5 mb-1">
                       <HelpCircle className="w-3.5 h-3.5 text-indigo-500" />

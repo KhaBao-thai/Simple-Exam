@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import type { Exam } from '../types';
 import {
   createShareBundle,
+  createShortShareLink,
   generateShareUrl,
   generateQrCode,
   downloadShareBundleFile,
@@ -47,6 +48,13 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
+  const [shareResult, setShareResult] = useState<{
+    url: string;
+    isShortLink: boolean;
+    charCount: number;
+    isTooLongForQr: boolean;
+  } | null>(null);
+  const [isCreatingLink, setIsCreatingLink] = useState(false);
 
   // Filter selected exams
   const selectedExams = useMemo(() => {
@@ -63,41 +71,62 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     return createShareBundle(selectedExams);
   }, [selectedExams]);
 
-  // Generate share URL and stats
-  const shareMeta = useMemo(() => {
-    if (!bundle) return null;
-    return generateShareUrl(bundle);
-  }, [bundle]);
-
-  // Generate QR Code when share URL changes
+  // Generate short share link and QR Code
   useEffect(() => {
-    if (!shareMeta || shareMeta.isTooLongForQr) {
+    if (!bundle) {
+      setShareResult(null);
       setQrDataUrl(null);
       return;
     }
 
     let isMounted = true;
-    setIsGeneratingQr(true);
+    setIsCreatingLink(true);
 
-    generateQrCode(shareMeta.url)
-      .then((dataUrl) => {
-        if (isMounted) {
-          setQrDataUrl(dataUrl);
-          setIsGeneratingQr(false);
+    createShortShareLink(bundle)
+      .then((res) => {
+        if (!isMounted) return;
+        setShareResult(res);
+        setIsCreatingLink(false);
+
+        // Generate QR Code
+        if (!res.isTooLongForQr) {
+          setIsGeneratingQr(true);
+          generateQrCode(res.url)
+            .then((dataUrl) => {
+              if (isMounted) {
+                setQrDataUrl(dataUrl);
+                setIsGeneratingQr(false);
+              }
+            })
+            .catch((err) => {
+              console.error('Failed to generate QR code:', err);
+              if (isMounted) {
+                setQrDataUrl(null);
+                setIsGeneratingQr(false);
+              }
+            });
+        } else {
+          setQrDataUrl(null);
         }
       })
-      .catch((err) => {
-        console.error('Failed to generate QR code:', err);
+      .catch((e) => {
+        console.error('Failed to create short link:', e);
         if (isMounted) {
-          setQrDataUrl(null);
-          setIsGeneratingQr(false);
+          setIsCreatingLink(false);
+          const fallback = generateShareUrl(bundle);
+          setShareResult({
+            url: fallback.url,
+            isShortLink: false,
+            charCount: fallback.charCount,
+            isTooLongForQr: fallback.isTooLongForQr,
+          });
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [shareMeta]);
+  }, [bundle]);
 
   // Toggle single exam selection
   const handleToggleExam = (id: string) => {
@@ -117,15 +146,15 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
   // Copy share URL
   const handleCopyLink = async () => {
-    if (!shareMeta?.url) return;
+    if (!shareResult?.url) return;
     try {
-      await navigator.clipboard.writeText(shareMeta.url);
+      await navigator.clipboard.writeText(shareResult.url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
       // Fallback
       const textArea = document.createElement('textarea');
-      textArea.value = shareMeta.url;
+      textArea.value = shareResult.url;
       document.body.appendChild(textArea);
       textArea.select();
       document.execCommand('copy');
@@ -137,7 +166,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
   // Native share if supported (mobile)
   const handleNativeShare = async () => {
-    if (!shareMeta?.url || !bundle) return;
+    if (!shareResult?.url || !bundle) return;
     const title =
       bundle.exams.length === 1
         ? `Đề thi: ${bundle.exams[0].title}`
@@ -148,7 +177,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         await navigator.share({
           title,
           text: `Cùng làm bài thi trắc nghiệm trên Simple Exam! (${totalQuestions} câu hỏi)`,
-          url: shareMeta.url,
+          url: shareResult.url,
         });
       } catch (e) {
         console.warn('Share cancelled or not allowed:', e);
@@ -314,23 +343,36 @@ export const ShareModal: React.FC<ShareModalProps> = ({
           </div>
 
           {/* TAB 1: Online Link & QR Code */}
-          {activeTab === 'link' && selectedExams.length > 0 && shareMeta && (
+          {activeTab === 'link' && selectedExams.length > 0 && shareResult && (
             <div className="space-y-5">
               {/* Link Copy Box */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Đường dẫn liên kết trực tiếp
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Đường dẫn liên kết trực tiếp
+                  </label>
+                  {shareResult.isShortLink ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200/60 dark:border-emerald-800/40">
+                      <Check className="w-3 h-3" />
+                      Link ngắn gọn ({shareResult.charCount} ký tự) • Gửi Zalo/FB chuẩn 100%
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      {shareResult.charCount} ký tự
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     readOnly
-                    value={shareMeta.url}
+                    value={shareResult.url}
                     className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-600 dark:text-slate-300 font-mono select-all focus:outline-none"
                   />
                   <button
                     onClick={handleCopyLink}
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 text-white dark:text-slate-900 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-sm"
+                    disabled={isCreatingLink}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 text-white dark:text-slate-900 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-sm disabled:opacity-60"
                   >
                     {copied ? (
                       <>
@@ -365,7 +407,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                   Mã QR quét để làm bài
                 </label>
 
-                {shareMeta.isTooLongForQr ? (
+                {shareResult.isTooLongForQr ? (
                   <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 flex gap-3 text-xs text-amber-800 dark:text-amber-300">
                     <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600" />
                     <div>
@@ -416,7 +458,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                           </button>
                         )}
                         <a
-                          href={shareMeta.url}
+                          href={shareResult.url}
                           target="_blank"
                           rel="noreferrer"
                           className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5 transition shadow-sm"

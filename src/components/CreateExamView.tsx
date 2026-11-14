@@ -183,7 +183,7 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
             { id: `${qId}_opt_D`, key: 'D', text: 'Lựa chọn D' },
           ],
           correctOptionId: `${qId}_opt_A`,
-          explanation: 'Nhập lời giải thích...',
+          explanation: '',
         },
       ],
     };

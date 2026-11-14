@@ -7,7 +7,7 @@ export interface AISolveResult {
   explanation: string;
 }
 
-const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash'];
+const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
 
 /**
  * Executes a Gemini request with automatic fallback across viable models
@@ -86,16 +86,16 @@ export async function solveQuestionsWithGemini(
     return `[Câu ${q.number || idx + 1}] (ID: ${q.id})\nĐề: ${q.text}\n${opts}`;
   }).join('\n\n---\n\n');
 
-  const systemInstruction = `Bạn là một chuyên gia khảo thí giáo dục hàng đầu. Nhiệm vụ của bạn là giải các câu hỏi trắc nghiệm sau đây. 
-Với mỗi câu hỏi:
-1. Hãy phân tích cẩn thận và chọn đáp án đúng nhất (A, B, C, D...).
-2. Viết lời giải thích ngắn gọn, súc tích, dễ hiểu (1-3 câu).
-3. Trả về ĐÚNG định dạng JSON array (không bọc text rườm rà ngoài JSON):
+  const systemInstruction = `Bạn là một chuyên gia khảo thí và học thuật uy tín. Nhiệm vụ của bạn là giải chính xác các câu hỏi trắc nghiệm dưới đây (bao gồm cả kiến thức Y khoa, Khoa học tự nhiên, Xã hội, Ngôn ngữ).
+Quy tắc:
+1. Suy luận cẩn trọng, đối chiếu tiêu chuẩn khoa học chính thống để chọn đáp án đúng tuyệt đối (A, B, C, D...).
+2. Viết lời giải thích chuyên môn ngắn gọn, súc tích, chỉ ra lý do tại sao phương án này đúng và vì sao các phương án khác sai (1-3 câu). Tuyệt đối không viết thông báo chung chung hay phỏng đoán.
+3. Trả về đúng định dạng JSON array:
 [
   {
     "id": "chuỗi id câu hỏi nguyên gốc",
-    "correctKey": "A/B/C/D",
-    "explanation": "Lời giải thích súc tích"
+    "correctKey": "A",
+    "explanation": "Giải thích chi tiết chuyên môn ngắn gọn"
   }
 ]`;
 

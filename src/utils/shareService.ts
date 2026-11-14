@@ -86,7 +86,82 @@ export function decodeShareBundle(encoded: string): ShareBundle | null {
 }
 
 /**
- * Generates full share URL
+ * Generates full share URL (with short link API or client compression fallback)
+ */
+export async function createShortShareLink(bundle: ShareBundle): Promise<{
+  url: string;
+  isShortLink: boolean;
+  charCount: number;
+  isTooLongForQr: boolean;
+}> {
+  const baseUrl = window.location.origin + window.location.pathname;
+
+  // 1. Try server short link API (/api/share)
+  try {
+    const res = await fetch('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bundle),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.id) {
+        const shortUrl = `${baseUrl}#id=${data.id}`;
+        return {
+          url: shortUrl,
+          isShortLink: true,
+          charCount: shortUrl.length,
+          isTooLongForQr: false,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Server short-link API unavailable, using compressed URL fallback:', err);
+  }
+
+  // 2. Fallback: Client-side compressed URL
+  const encoded = encodeShareBundle(bundle);
+  const fullUrl = `${baseUrl}#share=${encoded}`;
+  const charCount = fullUrl.length;
+
+  return {
+    url: fullUrl,
+    isShortLink: false,
+    charCount,
+    isTooLongForQr: charCount > 2200,
+  };
+}
+
+/**
+ * Fetches shared bundle by 6-char short ID from server API
+ */
+export async function fetchShareBundleById(id: string): Promise<ShareBundle | null> {
+  try {
+    const res = await fetch(`/api/share/${encodeURIComponent(id)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.exams)) {
+        return data as ShareBundle;
+      }
+      if (data && data.id && Array.isArray(data.questions)) {
+        return {
+          version: 1,
+          type: 'simple-exam',
+          createdAt: data.createdAt || Date.now(),
+          appName: 'SimpleExam',
+          exams: [sanitizeExamForShare(data)],
+        };
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch shared exam by ID:', err);
+  }
+  return null;
+}
+
+/**
+ * Generates full share URL synchronously (fallback)
  */
 export function generateShareUrl(bundle: ShareBundle): {
   url: string;

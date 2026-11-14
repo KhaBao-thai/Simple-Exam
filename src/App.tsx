@@ -21,7 +21,7 @@ import { PrintView } from './components/PrintView';
 import { AISettingsModal } from './components/AISettingsModal';
 import { ShareModal } from './components/ShareModal';
 import { ReceiveShareModal } from './components/ReceiveShareModal';
-import { decodeShareBundle, type ShareBundle } from './utils/shareService';
+import { decodeShareBundle, fetchShareBundleById, type ShareBundle } from './utils/shareService';
 
 export const App: React.FC = () => {
   const [exams, setExams] = useState<Exam[]>([]);
@@ -33,10 +33,10 @@ export const App: React.FC = () => {
   const [isSharingBank, setIsSharingBank] = useState(false);
   const [incomingShareBundle, setIncomingShareBundle] = useState<ShareBundle | null>(null);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    return (
-      localStorage.getItem('simple_exam_theme') === 'dark' ||
-      window.matchMedia('(prefers-color-scheme: dark)').matches
-    );
+    const saved = localStorage.getItem('simple_exam_theme');
+    if (saved === 'dark') return true;
+    if (saved === 'light') return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
   // Dark mode effect
@@ -55,17 +55,37 @@ export const App: React.FC = () => {
     const loaded = getStoredExams();
     setExams(loaded);
 
-    // Check for incoming share link in URL hash or search params
-    const checkIncomingShare = () => {
+    // Check for incoming share link in URL (short ID or compressed payload)
+    const checkIncomingShare = async () => {
       try {
         const hash = window.location.hash;
-        let payload = '';
+        const search = window.location.search;
+        const urlParams = new URLSearchParams(search);
 
+        // 1. Check for Short Link ID (#id=... or ?id=... or #s=... or ?s=...)
+        let shortId = '';
+        if (hash) {
+          const idMatch = hash.match(/(?:id|s)=([a-zA-Z0-9_-]+)/i);
+          if (idMatch) shortId = idMatch[1];
+        }
+        if (!shortId) {
+          shortId = urlParams.get('id') || urlParams.get('s') || '';
+        }
+
+        if (shortId) {
+          const bundle = await fetchShareBundleById(shortId);
+          if (bundle && bundle.exams.length > 0) {
+            setIncomingShareBundle(bundle);
+            return;
+          }
+        }
+
+        // 2. Fallback: Check for client-side compressed share payload (#share=... or ?share=...)
+        let payload = '';
         if (hash && hash.includes('share=')) {
           const match = hash.match(/share=([^&]+)/);
           if (match) payload = match[1];
         } else {
-          const urlParams = new URLSearchParams(window.location.search);
           const q = urlParams.get('share');
           if (q) payload = q;
         }

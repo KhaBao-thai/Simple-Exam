@@ -5,7 +5,9 @@ import mammoth from 'mammoth';
 
 // Set up pdf.js worker using local bundled worker
 try {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+  if (typeof window !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+  }
 } catch (e) {
   console.warn('PDF.js worker setup warning:', e);
 }
@@ -23,31 +25,35 @@ export function normalizeVietnameseSpacing(text: string): string {
   const initialClusters = '(?:ngh|ng|nh|ch|th|tr|kh|ph|gh|gi|qu|[bcdđghklmnprstvxBCDĐGHKLMNPRSTVX])';
   const finalClusters = '(?:ng|nh|ch|[cptmniyuoCPTMNIYUO])';
 
-  for (let iter = 0; iter < 4; iter++) {
-    // 1. Initial consonant + vowel (e.g. 'h ấp', 'ch ất', 's ố', 'ph ổi', 'g ợ')
-    s = s.replace(new RegExp('(^|[\\s(„“\"])(' + initialClusters + ')\\s+(' + vowels + '[a-zA-ZàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵĐđ]*)', 'g'),
+  for (let iter = 0; iter < 5; iter++) {
+    // 1. Initial consonant + vowel (e.g. 'h ấp', 'ch ất', 's ố', 'ph ổi', 'g ợ', 't ắ')
+    s = s.replace(new RegExp('(^|[\\s(„“\"])(' + initialClusters + ')\\s+(' + vowels + '[a-zA-Zà-ỹ]*)', 'g'),
       (match, lead, init, rest) => {
         // Avoid merging multiple-choice option letters like 'A. ', 'B. ', 'C. ', 'D. '
-        if (/^[A-D]$/i.test(init) && /^[\.\)]/.test(rest)) return match;
+        if (/^[A-D]$/i.test(init) && /^[\.\)\]]/.test(rest)) return match;
+        // Avoid merging standalone long words
+        if (init.length > 2 && !/^(?:ngh|ng|nh|ch|th|tr|kh|ph|gh|gi|qu)$/i.test(init)) return match;
         return lead + init + rest;
       }
     );
 
-    // 2. Vowel root + trailing consonant (e.g. 'đạ t', 'lượ ng', 'dướ i', 'thườ ng', 'tắ c', 'độ c')
-    s = s.replace(new RegExp('([a-zA-ZàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựĐđ]*' + accentedVowels + '[a-zA-ZàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựĐđ]*)\\s+(' + finalClusters + ')(?=[\\s.,!?;:)\\]]|$)', 'g'),
+    // 2. Trailing consonant / glide (e.g. 'đạ t', 'lượ ng', 'dướ i', 'thườ ng', 'tắ c', 'độ c', 'rố i', 'gợ i')
+    s = s.replace(new RegExp('([a-zA-Zà-ỹ]*' + accentedVowels + '[a-zA-Zà-ỹ]*)\\s+(' + finalClusters + ')(?=[\\s.,!?;:)\\]]|$)', 'g'),
       (_match, root, end) => root + end
     );
 
-    // 3. Medial 'o' or 'u' glide: 'lo ạ' -> 'loạ', 'to à' -> 'toà'
-    s = s.replace(new RegExp('([a-zA-ZĐđ]+[ouOU])\\s+(' + accentedVowels + '[a-zA-ZàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựĐđ]*)', 'g'),
+    // 3. Medial 'o' or 'u' glide: 'lo ạ' -> 'loạ', 'to à' -> 'toà', 'ho à' -> 'hoà'
+    s = s.replace(new RegExp('([a-zA-Zà-ỹ]+[ouOU])\\s+(' + accentedVowels + '[a-zA-Zà-ỹ]*)', 'g'),
       (_match, p1, p2) => p1 + p2
     );
   }
 
-  // Handle remaining common splits
-  s = s.replace(/T\s+ỷ/g, 'Tỷ')
-       .replace(/t\s+ỷ/g, 'tỷ')
-       .replace(/g\s+i\s+ớ\s+i/gi, 'giới')
+  // Handle specific frequent PDF extraction artifacts
+  s = s.replace(/\bT\s+ỷ\b/g, 'Tỷ')
+       .replace(/\bt\s+ỷ\b/g, 'tỷ')
+       .replace(/\bg\s+i\s+ớ\s+i\b/gi, 'giới')
+       .replace(/\bh\s+ô\b\s+h\s*áp\b/gi, 'hô hấp')
+       .replace(/\bh\s*áp\s+ký\b/gi, 'hấp ký')
        .replace(/[ \t]{2,}/g, ' ')
        .trim();
 
@@ -55,6 +61,11 @@ export function normalizeVietnameseSpacing(text: string): string {
 }
 
 export async function extractTextFromPdf(file: File): Promise<string> {
+  // Ensure worker is explicitly set before calling getDocument
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+  }
+
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({
     data: arrayBuffer,
@@ -96,9 +107,9 @@ export async function extractTextFromPdf(file: File): Promise<string> {
         // Same line: determine gap between previous item and current item
         const gap = currentX - (lastX + lastWidth);
 
-        // If gap is significant (> 1.8 units), insert a real space
-        // Otherwise, it's an intra-word character chunk (especially in Vietnamese PDFs)
-        if (gap >= 1.8 && !pageText.endsWith(' ') && !str.startsWith(' ')) {
+        // Natural word spaces in standard fonts are >= 3.2 units.
+        // Smaller gaps are kerning/font fragments in Vietnamese and should NOT have spaces inserted.
+        if (gap >= 3.2 && !pageText.endsWith(' ') && !str.startsWith(' ')) {
           pageText += ' ';
         }
       }
