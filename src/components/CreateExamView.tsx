@@ -338,6 +338,11 @@ export const CreateExamView: React.FC<CreateExamViewProps> = ({
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   AI sẽ suy luận đáp án chính xác và thêm lời giải thích học thuật cho từng câu hỏi
                 </p>
+                {!getAISettings().geminiApiKey?.trim() && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 font-medium">
+                    ⚠️ Nhớ nhập API Key tại menu <strong>Cài đặt AI</strong> trên thanh menu để kích hoạt tính năng này nhé!
+                  </p>
+                )}
               </div>
             </div>
 

@@ -16,7 +16,7 @@ async function executeGeminiRequest(
   primaryModel: string,
   apiKey: string,
   requestBody: any,
-  timeoutMs: number = 12000
+  timeoutMs: number = 35000
 ): Promise<any | null> {
   const modelsToTry = Array.from(new Set([primaryModel, ...FALLBACK_MODELS]));
 
@@ -40,7 +40,6 @@ async function executeGeminiRequest(
       if (response.ok) {
         const data = await response.json();
         if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
-          // If we successfully used a fallback model, update settings for future calls
           if (model !== primaryModel) {
             const current = getAISettings();
             saveAISettings({ ...current, model });
@@ -60,28 +59,14 @@ async function executeGeminiRequest(
 }
 
 /**
- * Call Google Gemini API to solve questions and generate explanations.
- * Safe: Guaranteed never to throw; falls back to local solver if network/model issue occurs.
+ * Solves a single batch of questions (max 8)
  */
-export async function solveQuestionsWithGemini(
-  questions: Question[],
-  settings?: AISettings
+async function solveBatchDirect(
+  batch: Question[],
+  apiKey: string,
+  primaryModel: string
 ): Promise<Record<string, { correctOptionId: string; explanation: string }>> {
-  const currentSettings = settings || getAISettings();
-  const apiKey = currentSettings.geminiApiKey?.trim();
-
-  // If questions is empty, return empty
-  if (!questions || questions.length === 0) return {};
-
-  // If no API key provided, return empty (never force guess)
-  if (!apiKey) {
-    return {};
-  }
-
-  const primaryModel = currentSettings.model || DEFAULT_GEMINI_MODEL;
-
-  // Build structured prompt
-  const questionsPrompt = questions.map((q, idx) => {
+  const questionsPrompt = batch.map((q, idx) => {
     const opts = q.options.map((o) => `${o.key}. ${o.text}`).join('\n');
     const knownKey = q.correctOptionId ? q.options.find((o) => o.id === q.correctOptionId)?.key : undefined;
     const knownHint = knownKey ? ` (Đáp án chọn sẵn: ${knownKey})` : '';
@@ -104,11 +89,7 @@ Quy tắc:
   const requestBody = {
     contents: [
       {
-        parts: [
-          {
-            text: `${systemInstruction}\n\nDanh sách câu hỏi cần giải:\n\n${questionsPrompt}`,
-          },
-        ],
+        parts: [{ text: `${systemInstruction}\n\nDanh sách câu hỏi cần giải:\n\n${questionsPrompt}` }],
       },
     ],
     generationConfig: {
@@ -117,42 +98,129 @@ Quy tắc:
     },
   };
 
+  const data = await executeGeminiRequest(primaryModel, apiKey, requestBody, 35000);
+  if (!data) return {};
+
+  const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!candidateText) return {};
+
+  const cleanedJson = candidateText.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
+  const parsedAnswers: Array<{ id: string; correctKey: string; explanation: string }> = JSON.parse(cleanedJson);
+
+  const resultMap: Record<string, { correctOptionId: string; explanation: string }> = {};
+
+  for (const item of parsedAnswers) {
+    const q = batch.find((quest) => quest.id === item.id);
+    if (q) {
+      const matchingOpt = q.options.find((o) => o.key.toUpperCase() === item.correctKey.toUpperCase());
+      if (matchingOpt) {
+        resultMap[q.id] = {
+          correctOptionId: matchingOpt.id,
+          explanation: item.explanation || '',
+        };
+      }
+    }
+  }
+
+  return resultMap;
+}
+
+/**
+ * Solves a single batch using the backend server proxy (/api/ai/solve)
+ */
+async function solveBatchViaServer(
+  batch: Question[],
+  userApiKey?: string,
+  model?: string
+): Promise<Record<string, { correctOptionId: string; explanation: string }>> {
   try {
-    const data = await executeGeminiRequest(primaryModel, apiKey, requestBody, 15000);
+    const res = await fetch('/api/ai/solve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        questions: batch,
+        userApiKey,
+        model,
+      }),
+    });
 
-    if (!data) {
-      return {};
-    }
-
-    const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!candidateText) {
-      return {};
-    }
-
-    // Clean JSON response (remove markdown backticks if any)
-    const cleanedJson = candidateText.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
-    const parsedAnswers: Array<{ id: string; correctKey: string; explanation: string }> = JSON.parse(cleanedJson);
-
-    const resultMap: Record<string, { correctOptionId: string; explanation: string }> = {};
-
-    for (const item of parsedAnswers) {
-      const q = questions.find((quest) => quest.id === item.id);
-      if (q) {
-        const matchingOpt = q.options.find((o) => o.key.toUpperCase() === item.correctKey.toUpperCase());
-        if (matchingOpt) {
-          resultMap[q.id] = {
-            correctOptionId: matchingOpt.id,
-            explanation: item.explanation || '',
-          };
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.results)) {
+        const resultMap: Record<string, { correctOptionId: string; explanation: string }> = {};
+        for (const item of json.results) {
+          const q = batch.find((quest) => quest.id === item.id);
+          if (q) {
+            const matchingOpt = q.options.find((o) => o.key.toUpperCase() === item.correctKey?.toUpperCase());
+            if (matchingOpt) {
+              resultMap[q.id] = {
+                correctOptionId: matchingOpt.id,
+                explanation: item.explanation || '',
+              };
+            }
+          }
         }
+        return resultMap;
+      }
+    }
+  } catch (e) {
+    console.warn('Backend proxy solver unavailable:', e);
+  }
+  return {};
+}
+
+/**
+ * Call Google Gemini API (or backend server proxy) to solve questions and generate explanations.
+ * Safe & resilient: Batches requests in chunks of 8 to avoid timeouts and supports server-side proxy fallback.
+ */
+export async function solveQuestionsWithGemini(
+  questions: Question[],
+  settings?: AISettings
+): Promise<Record<string, { correctOptionId: string; explanation: string }>> {
+  if (!questions || questions.length === 0) return {};
+
+  const currentSettings = settings || getAISettings();
+  const apiKey = currentSettings.geminiApiKey?.trim();
+  const primaryModel = currentSettings.model || DEFAULT_GEMINI_MODEL;
+
+  // Split into manageable batches of 8 questions to prevent timeouts on large tests
+  const BATCH_SIZE = 8;
+  const batches: Question[][] = [];
+  for (let i = 0; i < questions.length; i += BATCH_SIZE) {
+    batches.push(questions.slice(i, i + BATCH_SIZE));
+  }
+
+  const mergedResults: Record<string, { correctOptionId: string; explanation: string }> = {};
+
+  const batchPromises = batches.map(async (batch) => {
+    // 1. If client has API key, try direct call first
+    if (apiKey) {
+      try {
+        const directRes = await solveBatchDirect(batch, apiKey, primaryModel);
+        if (Object.keys(directRes).length > 0) {
+          Object.assign(mergedResults, directRes);
+          return;
+        }
+      } catch (err) {
+        console.warn('Direct solve failed for batch, trying backend proxy...', err);
       }
     }
 
-    return resultMap;
-  } catch (error) {
-    console.warn('Gemini solving failed:', error);
-    return {};
-  }
+    // 2. Fallback: Try backend server proxy
+    try {
+      const serverRes = await solveBatchViaServer(batch, apiKey, primaryModel);
+      if (Object.keys(serverRes).length > 0) {
+        Object.assign(mergedResults, serverRes);
+        return;
+      }
+    } catch (err) {
+      console.warn('Server proxy solve failed for batch:', err);
+    }
+  });
+
+  await Promise.all(batchPromises);
+
+  return mergedResults;
 }
 
 /**
@@ -203,7 +271,7 @@ ${rawText.substring(0, 15000)}`;
   };
 
   try {
-    const data = await executeGeminiRequest(primaryModel, apiKey, requestBody, 15000);
+    const data = await executeGeminiRequest(primaryModel, apiKey, requestBody, 35000);
     if (!data) return [];
 
     const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;

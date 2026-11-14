@@ -206,6 +206,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
       const aiSettings = getAISettings();
       const res = await solveQuestionsWithGemini(missing, aiSettings);
 
+      if (Object.keys(res).length === 0) {
+        alert('Không thể kết nối với AI hoặc chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt AI" trên thanh menu để nhập API Key miễn phí của bạn.');
+        return;
+      }
+
       const questions = currentExam.questions.map((quest) => {
         if (!quest.correctOptionId && res[quest.id]) {
           return {
@@ -240,6 +245,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
     try {
       const aiSettings = getAISettings();
       const res = await solveQuestionsWithGemini(targets, aiSettings);
+
+      if (Object.keys(res).length === 0) {
+        alert('Không thể kết nối với AI hoặc chưa cấu hình API Key. Vui lòng bấm vào "Cài đặt AI" trên thanh menu để nhập API Key miễn phí của bạn.');
+        return;
+      }
 
       const questions = currentExam.questions.map((quest) => {
         if (res[quest.id]) {

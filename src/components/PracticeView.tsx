@@ -72,6 +72,8 @@ export const PracticeView: React.FC<PracticeViewProps> = ({
           questions: updatedQuestions,
           updatedAt: Date.now(),
         });
+      } else {
+        alert('Không thể tạo lời giải thích lúc này. Vui lòng kiểm tra lại API Key trong mục "Cài đặt AI" trên thanh menu.');
       }
     } catch (e) {
       console.error(e);

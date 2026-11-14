@@ -182,9 +182,9 @@ interface ParsedQuestionWithMark extends Question {
 function parseQuestionContent(bodyText: string, qNum: number): ParsedQuestionWithMark {
   const qId = `q_${qNum}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
-  // Find option markers like A., B., C., D. or A), B), C), D) or *A., A*., *A)
+  // Find option markers like A., B., C., D. or A), B), C), D) or A: or *A., A*., *A)
   // Handles both inline (A. apple   B. banana) and multiline
-  const optionRegex = /(?:^|\s+|\n)([*]?\s*[A-D]\s*[*]?)(?:[\.\)]|\])\s+/g;
+  const optionRegex = /(?:^|\s+|\n)([*]?\s*[A-D]\s*[*]?)(?:[\.\:\)\-]|\])\s+/g;
   
   const matches: Array<{
     key: string;
@@ -258,7 +258,7 @@ function parseQuestionContent(bodyText: string, qNum: number): ParsedQuestionWit
   const options: Option[] = [];
 
   for (const line of lines) {
-    const optLineMatch = line.match(/^([*]?\s*[A-D]\s*[*]?)(?:[\.\)]|\])\s*(.*)$/i);
+    const optLineMatch = line.match(/^([*]?\s*[A-D]\s*[*]?)(?:[\.\:\)\-]|\]|\s)(.*)$/i);
     if (optLineMatch) {
       const rawMarker = optLineMatch[1].replace(/\s+/g, '');
       const isAsteriskMarked = rawMarker.includes('*');

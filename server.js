@@ -111,7 +111,78 @@ const server = http.createServer((req, res) => {
     }
   }
 
-  // 4. Static file serving from DIST_DIR
+  // 4. POST /api/ai/solve - proxy AI solving with server key or user key
+  if (pathname === '/api/ai/solve' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 5 * 1024 * 1024) req.destroy();
+    });
+
+    req.on('end', async () => {
+      try {
+        const { questions, userApiKey, model } = JSON.parse(body || '{}');
+        const apiKey = userApiKey?.trim() || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+
+        if (!apiKey) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'NO_API_KEY', message: 'Chưa cấu hình API Key trên server hoặc trình duyệt.' }));
+          return;
+        }
+
+        if (!Array.isArray(questions) || questions.length === 0) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, results: [] }));
+          return;
+        }
+
+        const targetModel = model || 'gemini-3.5-flash-lite';
+        const systemInstruction = `Bạn là chuyên gia khảo thí uy tín. Nhiệm vụ của bạn là giải các câu hỏi trắc nghiệm dưới đây và viết lời giải thích chi tiết.
+Quy tắc:
+1. Chọn đáp án đúng nhất (A, B, C, D...). Nếu đề có ghi "(Đáp án chọn sẵn: X)", hãy xác minh và giải thích vì sao X đúng.
+2. Viết lời giải thích chuyên môn ngắn gọn, súc tích (1-3 câu), giải thích rõ cơ chế hoặc lý do tại sao đúng.
+3. Trả về đúng định dạng JSON array: [{"id": "...", "correctKey": "A", "explanation": "..."}]`;
+
+        const questionsPrompt = questions.map((q, idx) => {
+          const opts = (q.options || []).map((o) => `${o.key}. ${o.text}`).join('\n');
+          const knownKey = q.correctOptionId ? q.options?.find((o) => o.id === q.correctOptionId)?.key : undefined;
+          const knownHint = knownKey ? ` (Đáp án chọn sẵn: ${knownKey})` : '';
+          return `[Câu ${q.number || idx + 1}] (ID: ${q.id})${knownHint}\nĐề: ${q.text}\n${opts}`;
+        }).join('\n\n---\n\n');
+
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
+        const aiRes = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `${systemInstruction}\n\nDanh sách câu hỏi cần giải:\n\n${questionsPrompt}` }] }],
+            generationConfig: { temperature: 0.1, responseMimeType: 'application/json' }
+          })
+        });
+
+        if (!aiRes.ok) {
+          const errText = await aiRes.text();
+          res.writeHead(aiRes.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'GEMINI_ERROR', details: errText }));
+          return;
+        }
+
+        const aiData = await aiRes.json();
+        const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+        const cleaned = text ? text.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim() : '[]';
+        const parsed = JSON.parse(cleaned);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, results: parsed }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // 5. Static file serving from DIST_DIR
   const safePath = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
   const filePath = path.join(DIST_DIR, safePath);
 
